@@ -1,0 +1,45 @@
+name: daily-scrape-and-email
+
+on:
+  schedule:
+    - cron: '30 6 * * *'  # 06:30 UTC = 07:30 BST / 06:30 GMT (winter), close enough
+  workflow_dispatch:
+
+permissions:
+  contents: write  # so the bot can commit data/
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run daily scrape
+        run: uv run python jobs/daily_scrape.py
+
+      - name: Send daily email
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_TO_EMAIL: ${{ secrets.RESEND_TO_EMAIL }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL || 'onboarding@resend.dev' }}
+        run: uv run python jobs/daily_email.py
+
+      - name: Commit updated data
+        run: |
+          git config user.name "svansokning-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/
+          if git diff --quiet --cached; then
+            echo "No data changes to commit."
+          else
+            git commit -m "data: $(date -u +%F) scrape"
+            git push
+          fi
